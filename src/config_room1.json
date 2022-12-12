@@ -1,0 +1,86 @@
+{
+  "ip_servidor_central": "127.0.0.1",
+  "porta_servidor_central": 3002,
+  "ip_servidor_distribuido": "127.0.0.1",
+  "porta_servidor_distribuido": 3002,
+  "nome": "Sala 01",
+  "outputs": [
+      {
+          "type": "lampada",
+          "tag": "Lâmpada 01",
+          "gpio": 18,
+          "value": 0
+      },
+      {
+          "type": "lampada",
+          "tag": "Lâmpada 02",
+          "gpio": 23,
+          "value": 0
+      },
+      {
+          "type": "projetor",
+          "tag": "Projetor Multimidia",
+          "gpio": 25,
+          "value": 0
+      },
+      {
+          "type": "ar-condicionado",
+          "tag": "Ar-Condicionado (1º Andar)",
+          "gpio": 24,
+          "value": 0
+      },
+      {
+          "type": "alarme",
+          "tag": "Sirene do Alarme",
+          "gpio": 8,
+          "value": 0
+      }
+  ],
+  "inputs": [
+      {
+        "type": "presenca",
+        "tag": "Sensor de Presença",
+        "gpio": 7,
+        "value": 0
+      },
+      {
+          "type": "fumaca",
+          "tag": "Sensor de Fumaça",
+          "gpio": 1,
+          "value": 0
+      },
+      {
+          "type": "janela",
+          "tag": "Sensor de Janela",
+          "gpio": 12,
+          "value": 0
+      },
+      {
+          "type": "porta",
+          "tag": "Sensor de Porta",
+          "gpio": 16,
+          "value": 0
+      },
+      {
+          "type": "contagem",
+          "tag": "Sensor de Contagem de Pessoas Entrada",
+          "gpio": 20,
+          "value": 0
+      },
+      {
+          "type": "contagem",
+          "tag": "Sensor de Contagem de Pessoas Saida",
+          "gpio": 21,
+          "value": 0
+      }
+  ],
+  "sensor_temperatura":[
+      {
+        "type": "dth22",
+        "tag": "Sensor de Temperatura e Umidade",
+        "gpio": 4,
+        "value_temp": 0,
+        "value_hum": 0
+      }
+  ]
+}

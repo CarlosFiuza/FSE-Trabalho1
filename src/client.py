@@ -1,105 +1,69 @@
-# import sys
-# import socket
-# from time import sleep
-# import threading
-
-# HOST, PORT = sys.argv[1], int(sys.argv[2])
-
-# # HOST = "127.0.0.1"  # The server's hostname or IP address
-# # PORT = 65432  # The port used by the server
-
-# # with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-# #     s.connect((HOST, PORT))
-# #     s.sendall(b"Hello, world")
-# #     data = s.recv(1024)
-
-# # print(f"Received {data!r}")
-
-
-# class Client:
-#     def __init__(self) -> None:
-#         HOST, PORT = sys.argv[1], int(sys.argv[2])
-#         self.lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#         self.lsock.connect((HOST, PORT))
-
-#     def write_to_server(self):
-#         while True:
-#             a = sys.stdin.readline().encode()
-#             self.lsock.sendall(a)
-
-#     def read_from_server(self):
-#         while True:
-#             recv_data = self.lsock.recv(1024)
-#             print(recv_data.decode())
-
-#     def run(self):
-#         try:
-#             while True:
-#                 thread = threading.Thread(target = self.write_to_server)
-#                 thread.start()
-#                 self.read_from_server()
-#                 thread.join()
-#         except KeyboardInterrupt:
-#             print("Caught keyboard interrupt, exiting")
-#         finally:
-#             exit()
-
-# if __name__ == '__main__':
-#     try:
-#         client = Client()
-#         client.run()
-#     except:
-#         print("Falha na criação do cliente")
-#     finally:
-#         exit()
-
-
-# # lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# # lsock.connect((HOST, PORT))
-
-# # try:
-# #     thread = threading.Thread()
-
-# #     while True:
-# #         a = sys.stdin.readline().encode()
-# #         lsock.sendall(a)
-# # except KeyboardInterrupt:
-# #     print("Caught keyboard interrupt, exiting")
-# # finally:
-# #     exit()
-
+import sys
+from time import sleep
+import threading
 import socket
 import json
+from collections import deque
 
-HOST = "127.0.0.1"  # The server's hostname or IP address
-PORT = 3211  # The port used by the server
+class Room:
+    def __init__(self, config_file_path) -> None:
+        config_file = open(config_file_path)
+        self.config = json.load(config_file)
+        self.socket = self.connect_server()
+        self.initialize_gpio()
+        self.alive = True
+        self.to_do = deque([])
 
-jsonExample = {
-    "inputs": {
-        "presence_sensor": "0",  # 0 - vazio, 1 - alguém na sala
-        "smoke_sensor": "1",  # 0 - sem fumaça, 1 - com fumaça
-        "window1": "1",  # 0 - fechada, 1 - aberta
-        "window2": "0",  # 0 - fechada, 1 - aberta
-        "count_people_in": "1",  # ?
-        "count_people_out": "1",  # ?
-    },
-    "outputs": {
-        "lamp1": "0",  # 0 - desligada, 1 - acessa
-        "lamp2": "0",  # 0 - desligada, 1 - acessa
-        "air": "1",  # 0 - desligado, 1 - ligado
-        "projector": "1",  # 0 - desligado, 1 - ligado
-        "buzzer": "1",  # 0 - desligado, 1 - ligado
-    },
-    "wire": {
-        "temp/umid": "1",  # ?
-    },
-}
+    def stop(self):
+        self.alive = False
+        self.socket.close()
+        exit()
 
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect((HOST, PORT))
-    string = json.dumps(jsonExample)
-    print(string)
-    s.sendall(str(string).encode())
-    data = s.recv(1024)
+    def connect_server(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((self.config["ip_servidor_central"], self.config["porta_servidor_central"]))
+            return s
+        except:
+            print("Failed to connect with server")
+            self.stop()
 
-print(f"Received {data!r}")
+    def initialize_gpio(self):
+        print("Initialize gpio")
+
+    def read_sensors(self):
+        while True and self.alive:
+            try:
+                task = self.to_do.popleft()
+                print(f"Doing this: {task}")
+                string = json.dumps(self.config)
+                self.socket.sendall(str(string).encode())
+            except IndexError:
+                pass
+            sleep(0.2)
+
+
+    def manage_connection(self):
+        while True and self.alive:
+            data = self.socket.recv(2000)
+            message = json.loads(data)
+            self.to_do.append(message)
+
+    def run(self):
+        try:
+            thread_read_sensors = threading.Thread(target=self.read_sensors)
+            thread_read_sensors.start()
+
+            self.manage_connection()
+        except:
+            print("Failed run")
+            self.stop()
+
+try:
+    if len(sys.argv) != 2:
+        print("Missing config_file_path in argv")
+        exit()
+    room = Room(sys.argv[1])
+    room.run()
+except KeyboardInterrupt:
+    exit()
