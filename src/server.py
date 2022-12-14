@@ -4,21 +4,16 @@ import selectors
 import types
 import json
 import threading
+import csv
 from time import sleep
 from os import system
+from datetime import datetime
 
 rooms = {
     "164.41.98.16/13508": "Sala 1",
     "164.41.98.26/13508": "Sala 2",
     "164.41.98.28/13508": "Sala 3",
     "164.41.98.15/13508": "Sala 4",
-}
-
-roomsAux = {
-    0: "Sala 1",
-    1: "Sala 2",
-    2: "Sala 3",
-    3: "Sala 4",
 }
 
 socketRoom = {
@@ -43,117 +38,312 @@ class Display:
     def set_room(self, key, value):
         self.rooms[key] = value
 
+    def alarm_system(_, is_alarm_system_on):
+        message = "ligado" if is_alarm_system_on else "desligado"
+        sys.stdout.write(f"Sistema de alarme: {message}\n")
+
     def inputs(_, input):
-        print("Inputs:")
+        sys.stdout.write("\n Status of inputs:\n")
         for obj in input:
             tag = obj["tag"]
             value = "desligado" if int(obj["value"]) == 0 else "ligado"
-            print(f"{tag}: {value}")
-            print("----------------------------")
+            sys.stdout.write(f"| {tag}: {value}\n")
+            sys.stdout.write("|----------------------------\n")
 
     def outputs(_, output):
-        print("Outputs:")
+        sys.stdout.write("\n Status of outputs:\n")
         for obj in output:
             tag = obj["tag"]
             value = "desligado" if int(obj["value"]) == 0 else "ligado"
-            print(f"{tag}: {value}")
-            print("----------------------------")
+            sys.stdout.write(f"| {tag}: {value}\n")
+            sys.stdout.write("|----------------------------\n")
 
     def temp(_, obj):
         temp = obj["value_temp"]
         hum = obj["value_hum"]
-        print(f"Valor da temperatura e umidade: {temp}°C {hum}%")
-        print("----------------------------")
+        sys.stdout.write(f"\nValor da temperatura e umidade: {temp}°C {hum}%\n")
+        sys.stdout.write("----------------------------\n")
 
-    def show(self):
-        system('clear')
-        for key, value in self.rooms.items():
-            if value:
+    def show_available_rooms(self):
+        count = 1
+        for key in self.rooms.keys():
+            sys.stdout.write(f"   {count} - {key}\n")
+            count = count + 1
+
+    def show_number_persons(self, show_all, key):
+        try:
+            count = 0
+            if show_all:
+                for room in self.rooms.values():
+                    count = count + int(room["num_pessoas"])
+                sys.stdout.write(f"Número de pessoas no prédio: {count}\n")
+            else:
+                sys.stdout.write(
+                    f"Número de pessoas na sala: {self.rooms[key]['num_pessoas']}\n"
+                )
+        except:
+            print("HEHEHEH")
+
+    def show(self, idx):
+        i = 1
+        for key, room in self.rooms.items():
+            if i == idx:
+                value = room
                 print(key)
+                self.show_number_persons(show_all=False, key=key)
                 self.inputs(value["inputs"])
                 self.outputs(value["outputs"])
                 self.temp(value["sensor_temperatura"][0])
+                return
+            i = i + 1
+        sys.stdout.write("Wrong function Display.show behavior")
+
+
+class Logger:
+    def __init__(self) -> None:
+        try:
+            self.file = open("logs.csv", "x")
+        except FileExistsError:
+            self.file = open("logs.csv", "w")
+            pass
+        self.header = ["action", "datetime"]
+        self.writer = csv.writer(self.file)
+        self.writer.writerow(self.header)
+
+    def write_row(self, action):
+        dt_string = datetime.now()
+        row = [str(action), dt_string]
+        self.writer.writerow(row)
+
+    def close_file(self):
+        self.file.close()
 
 
 class Server:
     def __init__(self, ip_addr, port) -> None:
-        self.host = ip_addr
-        self.port = port
-        self.lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.lsock.bind((self.host, self.port))
-        self.lsock.listen()
-        print(f"Listening on {(self.host, self.port)}")
-        self.lsock.setblocking(False)
-        self.sel = selectors.SelectSelector()
-        self.sel.register(self.lsock, selectors.EVENT_READ, data=None)
-        self.num_rooms = 0
-        self.display = Display()
-        self.alive = True
+        try:
+            self.host = ip_addr
+            self.port = port
+            self.lsock = self.create_server_socket()
+            self.sel = selectors.SelectSelector()
+            self.sel.register(self.lsock, selectors.EVENT_READ, data=None)
+            self.logger = Logger()
+            self.num_rooms = 0
+            self.display = Display()
+            self.alive = True
+            self.alarm_system_on = False
+        except OSError as error:
+            sys.stdout.write(f"Failed do create socker, error: {error}\n")
+            exit(1)
+
+    def create_server_socket(self):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.bind((self.host, self.port))
+            s.listen()
+            print(f"Listening on {(self.host, self.port)}")
+            s.setblocking(False)
+            return s
+        except OSError as error:
+            sys.stdout.write(f"Failed do create socker, error: {error}\n")
+            exit(1)
+
+    def create_log_csv(self):
+        try:
+            file = open("logs.csv", "x")
+            header = ["action", "date", "time"]
+            writer = csv.writer(file)
+            writer.writerow(header)
+            return writer
+        except Exception as error:
+            sys.stdout.write(f"Failed to create log file, error : {error}\n")
+            exit(1)
 
     def accept_wrapper(self, sock):
-        conn, addr = sock.accept()  # Should be ready to read
+        conn, addr = sock.accept()
         print(f"Accepted connection from {addr}")
         conn.setblocking(False)
-        room = str(addr[0]) + "/" + str(addr[1])
-        print(f"room: {room}")
-        data = types.SimpleNamespace(
-            addr=addr, room=roomsAux[self.num_rooms], json_in="", json_out=b""
-        )
+        data = types.SimpleNamespace(addr=addr, room="", json_in="", json_out=b"")
         events = selectors.EVENT_READ | selectors.EVENT_WRITE
-        socketRoom[roomsAux[self.num_rooms]] = self.sel.register(conn, events, data=data)
+        self.sel.register(conn, events, data=data)
         self.num_rooms = self.num_rooms + 1
+
+    def subscribe_message_to_rooms(self, message, all_rooms, room):
+        if not all_rooms:
+            socketRoom[room].data.json_out += message.encode()
+            return
+        for sock in socketRoom.values():
+            sock.data.json_out += message.encode()
+
+    def check_sensors_input(self, data):
+        if self.alarm_system_on:
+            sensors = ["presenca", "janela", "porta"]
+            for sens in data["inputs"]:
+                if sensors.index(sens["type"]) and int(sens["value"]) == 1:
+                    message = json.dumps(dict(tag="Sirene do Alarme", value=1))
+                    self.subscribe_message_to_rooms(message=message, all_rooms=True, room=None)
+                    self.logger.write_row("Acionamento do alarme")
+                    break
+
+        for sens in data["inputs"]:
+            if sens["type"] == "fumaca" and int(sens["value"]) == 1:
+                message = json.dumps(dict(tag="Sirene do Alarme", value=1))
+                self.subscribe_message_to_rooms(message=message, all_rooms=True, room=None)
+                self.logger.write_row("Acionamento do alarme")
+                break
+
+        if len(data["feedback_acionamentos"]) > 0:
+            for obj in data["feedback_acionamentos"]:
+                value = int(obj["value"])
+                if obj["tag"] == "Try to turn on alarm system":
+                    if value == 1:
+                        message = "Alarm system on\n"
+                        self.alarm_system_on = True
+                    else:
+                        message = f"There are input sensors indicating presence or smoke or window/door open in {data['nome']}\n"
+                    sys.stdout.write(message)
+                    continue
+
+                if value == 1:
+                    message = f"Successful to {obj['tag']}"
+                else:
+                    message = f"Failed to {obj['tag']}"
+                sys.stdout.write(message)
+                
 
     def service_connection(self, key, mask):
         sock = key.fileobj
         data = key.data
         if mask & selectors.EVENT_READ:
-            recv_data = sock.recv(2000)  # Should be ready to read
+            recv_data = sock.recv(2000)
             if recv_data:
                 data.json_in = json.loads(recv_data)
+                if not data.room:
+                    data.room = data.json_in["nome"]
+                    socketRoom[data.room] = key
                 self.display.set_room(key=data.room, value=data.json_in)
-                self.display.show()
             else:
-                print(f"Closing connection to {data.addr}")
+                print(f"Closing connection to {data.room}")
                 self.sel.unregister(sock)
                 sock.close()
                 self.num_rooms = self.num_rooms - 1
+                socketRoom[data.room] = None
         if mask & selectors.EVENT_WRITE:
             if data.json_out:
-                #print(f"Echoing {data.json_out} to {data.addr}")
-                sent = sock.send(data.json_out)  # Should be ready to write
+                sent = sock.send(data.json_out)
                 data.json_out = data.json_out[sent:]
+
+    def input_user_display_room(self):
+        self.display.alarm_system(self.alarm_system_on)
+        self.display.show_number_persons(show_all=True, key=None)
+        sys.stdout.write("-> Press the number of the room or 0 to come back:\n")
+        self.display.show_available_rooms()
+        while True:
+            num_pressed = (sys.stdin.readline()).strip()
+            if not num_pressed.isnumeric():
+                sys.stdout.write("<- Press a number, not string\n")
+                continue
+            num_pressed = int(num_pressed)
+            if num_pressed == 0:
+                break
+            if num_pressed < 1 or num_pressed > self.num_rooms:
+                sys.stdout.write("<- Wrong number, press again\n")
+            else:
+                system("clear")
+                self.display.show(num_pressed)
+                break
+
+    def input_user_enter_command(self):
+        system("clear")
+        sys.stdout.write(
+            "-> Write <room> - <output> - <value> to send a command or 0 to come back\n"
+        )
+        sys.stdout.write("-> Write 'alarm' to on/off alarm system\n")
+        sys.stdout.write("-> Obs: (value: 0 = off and 1 = on)\n")
+
+        while True:
+            command = sys.stdin.readline()
+            if (command.strip()).isnumeric() and int(command.strip()) == 0:
+                break
+
+            elif command.strip() == "alarm":
+                if self.alarm_system_on:
+                    message = f"<- Turn off alarm system\n"
+                    sys.stdout.write(message)
+                    self.alarm_system_on = False
+                    break
+                
+                self.logger.write_row(f"<- Try to turn on alarm system\n")
+                message = json.dumps(dict(tag="Try to turn on alarm system", value=1))
+                self.subscribe_message_to_rooms(message=message, all_rooms=True, room=None)
+
+            list_commands = command.split("-")
+            if len(list_commands) != 3:
+                sys.stdout.write("<- Invalid inputs, write again\n")
+                continue
+
+            room = list_commands[0].strip()
+            tag = list_commands[1].strip()
+            value = int(list_commands[2].strip())
+
+            if not socketRoom[room]:
+                sys.stdout.write("<- Invalid room, write again\n")
+                continue
+
+            if value != 0 and value != 1:
+                sys.stdout.write("<- Invalid value, write again\n")
+                continue
+
+            tag_finded = False
+            for obj in socketRoom[room].data.json_in["outputs"]:
+                if obj["tag"] == tag:
+                    message = json.dumps(dict(tag=tag, value=value))
+                    self.subscribe_message_to_rooms(message=message, all_rooms=False, room=room)
+                    tag_finded = True
+                    self.logger.write_row(message)
+                    break
+
+            if tag_finded:
+                break
+            else:
+                sys.stdout.write("<- Invalid tag, write again\n")
 
     def input_user(self):
         try:
             while True and self.alive:
                 if self.num_rooms == 0:
-                    sleep(0.2)
-                    continue
-                print('Write the <room> - <name> - <value> of the output')
-                command = sys.stdin.readline()
-                list_commands = command.split("-")
-                if len(list_commands) != 3:
-                    print("Invalid values")
+                    sys.stdout.write("<- No room connected\n")
+                    sleep(2)
                     continue
 
-                room = list_commands[0].strip()
-                tag = list_commands[1].strip()
-                value = list_commands[2].strip()
-       
-                if not socketRoom[room]:
-                    print("Invalid room")
+                sys.stdout.write(
+                    "-> Press 1 to show room's info\n   2 to send a command\n   0 to quit\n"
+                )
+                pressed = sys.stdin.readline()
+
+                if not (pressed.strip()).isnumeric():
+                    sys.stdout.write("<- Wrong input\n")
                     continue
-                tag_finded = False
- 
-                for obj in socketRoom[room].data.json_in["outputs"]:
-                    if obj["tag"] == tag:
-                        message = json.dumps(dict(tag=tag, value=value))
-                        socketRoom[room].data.json_out += message.encode()
-                        tag_finded = True
-                if not tag_finded:
-                    print("Invalid tag")
-        except:
-            print("Aoba")
+
+                pressed = int(pressed.strip())
+
+                if pressed == 0:
+                    self.sel.close()
+                    exit()
+
+                if pressed != 1 and pressed != 2:
+                    sys.stdout.write("<- Wrong input\n")
+                    continue
+
+                if pressed == 1:
+                    system("clear")
+                    self.input_user_display_room()
+                else:
+                    system("clear")
+                    self.input_user_enter_command()
+
+        except Exception as error:
+            sys.stdout.write(f"Error on input_user {error}\n")
             self.alive = False
 
     def request_temperature(self):
@@ -165,7 +355,7 @@ class Server:
                         room.data.json_out += message.encode()
                 sleep(2)
         except:
-            print("request_temperature Failed")
+            sys.stdout.write("Request_temperature Failed\n")
             self.alive = False
 
     def manage_connections(self):
@@ -191,14 +381,16 @@ class Server:
             thread_input.join(0.1)
             thread_req_temp.join(0.1)
         finally:
+            self.logger.close_file()
             self.sel.close()
 
+        self.logger.close_file()
         thread_input.join(0.1)
         thread_req_temp.join(0.1)
         self.sel.close()
 
-#Sala 1 - Lâmpada 01 - 1
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     if len(sys.argv) != 3:
         print("Missing <ip address> <port>")
         exit()
