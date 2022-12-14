@@ -4,6 +4,7 @@ from time import sleep
 import threading
 import socket
 import json
+import adafruit_dht
 from collections import deque
 
 
@@ -48,28 +49,35 @@ class Room:
             gpio.setwarnings(False)
             gpio.setmode(gpio.BCM)
 
-            output_pins = [(int(obj["gpio"]), int(obj["value"])) for obj in self.config["outputs"]]
-            gpio.setup([pin for pin, _ in output_pins], gpio.OUT)
+            for obj in self.config["outputs"]:
+                pin = obj["gpio"]
+                gpio.setup(pin, gpio.OUT)
+                gpio.output(pin, obj["value"])
 
-            for pin, value in output_pins:
-                gpio.output(pin, value)
+            for obj in self.config["inputs"]:
+                pin = obj["gpio"]
+                gpio.setup(pin, gpio.IN)
+                input_val = gpio.input(pin)
+                obj["value"] = '1' if input_val else '0'
+                if obj["type"] == "contagem":
+                    gpio.add_event_detect(pin, gpio.RISING, bouncetime=200)
+                else:
+                    gpio.add_event_detect(pin, gpio.BOTH)
 
-            input_pins = [int(obj["gpio"]) for obj in self.config["inputs"]]
-            gpio.setup(input_pins, gpio.IN)
-
+            self.dht = adafruit_dht.DHT22(self.config["sensor_temperatura"][0]["gpio"])
 
         except Exception as error:
             sys.stdout.write(f"Failed to initialize_gpio, error: {error}\n")
             self.stop()
     
-    def get_obj_gpio(self, tag, type):
+    def get_obj_gpio(self, tag, type, key):
         if type:
             list = []
-            for obj in self.config["outputs"]:
+            for obj in self.config[key]:
                 if type.index(obj["type"]):
                     list.append(obj)
             return list
-        for obj in self.config["outputs"]:
+        for obj in self.config[key]:
             if tag == obj["tag"]:
                 return obj
 
@@ -84,6 +92,11 @@ class Room:
         self.send_to_server()
         self.config["feedback_acionamentos"].clear()
 
+    def invert_value(self, value):
+        if value == "1":
+            return "0"
+        return "1"
+
     def read_sensors(self):
         while True and self.alive:
             try:
@@ -93,29 +106,70 @@ class Room:
                     try:
                         if task.get("time", False):
                             if task["tag"] == 'lampada':
-                                list_obj = self.get_obj_gpio(tag=task["tag"], type=["lampada"])
+                                list_obj = self.get_obj_gpio(tag=None, type=["lampada"], key="outputs")
                                 value = int(task["value"])
                                 gpio.output([obj["gpio"] for obj in list_obj], value)
                                 self.keep_lamp_on = (True, 15)
                                 #Falta ver como que vai deixar as lampadas ligadas por esse tempo
                         else:
-                            obj = self.get_obj_gpio(tag=task["tag"], type=None)
+                            obj = self.get_obj_gpio(tag=task["tag"], type=None, key="outputs")
                             value = int(task["value"])
                             gpio.output(obj["gpio"], value)
                             obj["value"] = task["value"]
 
-                        self.send_feedback(task=task, success=True)
+                        #self.send_feedback(task=task, success=True)
                     except Exception as error:
                         sys.stdout.write(f"Failed to {task}, error: {error}\n")
-                        self.send_feedback(task=task, success=False)
+                        #self.send_feedback(task=task, success=False)
                         pass
                 elif task["type"] == 'alarm_system':
                     types = ["presenca", "fumaca", "janela", "porta"]
-                    #le esses sensores e analisa resultado
-                    self.send_feedback(task=task, success=True)
-                #string = json.dumps(self.config)
-                #print("Sending to server")
-                #self.socket.sendall(str(string).encode())
+                    list_obj = self.get_obj_gpio(tag=None, type=types, key="inputs")
+                    for obj in list_obj:
+                        if obj["value"] == '1':
+                         #   self.send_feedback(task=task, success=False)
+                            break
+                    #self.send_feedback(task=task, success=True)
+                elif task["tag"] == "Sensor de Temperatura e Umidade":
+                    obj = self.get_obj_gpio(tag=task["tag"], type=None, key="sensor_temperatura")
+                    humidity = float(obj["value_hum"])
+                    temperature = float(obj["value_temp"])
+                    count = 0
+                    while count < 15:
+                        try:
+                            humidity = self.dht.humidity
+                            temperature = self.dht.temperature
+                        except RuntimeError:
+                            sys.stdout.write("Failed to read humidity and temperature, trying again\n")
+                            pass
+                        count = count + 1
+                    obj["value_hum"] = humidity
+                    obj["value_temp"] = temperature
+
+                presence = self.get_obj_gpio(tag="Sensor de Presença", type=None, key="inputs")
+                if gpio.event_detected(presence["gpio"]):
+                    presence["value"] = self.invert_value(presence["value"])
+                fumaca = self.get_obj_gpio(tag="Sensor de Fumaça", type=None, key="inputs")
+                if gpio.event_detected(fumaca["gpio"]):
+                    fumaca["value"] = self.invert_value(fumaca["value"])
+                janela = self.get_obj_gpio(tag="Sensor de Janela", type=None, key="inputs")
+                if gpio.event_detected(janela["gpio"]):
+                    janela["value"] = self.invert_value(janela["value"])
+                porta = self.get_obj_gpio(tag="Sensor de Porta", type=None, key="inputs")
+                if gpio.event_detected(porta["gpio"]):
+                    porta["value"] = self.invert_value(porta["value"])
+
+                contagem_up = self.get_obj_gpio(tag="Sensor de Contagem de Pessoas Entrada", type=None, key="inputs")
+                if gpio.event_detected(contagem_up["gpio"]):
+                    contagem_up["value"] = self.invert_value(contagem_up["value"])
+                    self.config["num_pessoas"] = int(self.config["num_pessoas"]) + 1
+                contagem_down = self.get_obj_gpio(tag="Sensor de Contagem de Pessoas Saida", type=None, key="inputs")
+                if gpio.event_detected(contagem_down["gpio"]):
+                    contagem_down["value"] = self.invert_value(contagem_down["value"])
+                    self.config["num_pessoas"] = int(self.config["num_pessoas"]) - 1
+
+                self.send_to_server()
+
             except IndexError:
                 pass
             sleep(0.02)
