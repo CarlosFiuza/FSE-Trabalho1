@@ -180,14 +180,21 @@ class Server:
             sensors = ["presenca", "janela", "porta"]
             for sens in data["inputs"]:
                 if sensors.index(sens["type"]) and int(sens["value"]) == 1:
-                    message = json.dumps(dict(tag="Sirene do Alarme", value=1))
+                    message = json.dumps(dict(type="output", tag="Sirene do Alarme", value=1))
                     self.subscribe_message_to_rooms(message=message, all_rooms=True, room=None)
+                    self.logger.write_row("Acionamento do alarme")
+                    break
+        else:
+            for sens in data["inputs"]:
+                if sens["type"] == "presenca":
+                    message = json.dumps(dict(type="output", tag="lampada", value=1, time=15))
+                    self.subscribe_message_to_rooms(message=message, all_rooms=False, room=data["nome"])
                     self.logger.write_row("Acionamento do alarme")
                     break
 
         for sens in data["inputs"]:
             if sens["type"] == "fumaca" and int(sens["value"]) == 1:
-                message = json.dumps(dict(tag="Sirene do Alarme", value=1))
+                message = json.dumps(dict(type="output", tag="Sirene do Alarme", value=1))
                 self.subscribe_message_to_rooms(message=message, all_rooms=True, room=None)
                 self.logger.write_row("Acionamento do alarme")
                 break
@@ -215,7 +222,7 @@ class Server:
         sock = key.fileobj
         data = key.data
         if mask & selectors.EVENT_READ:
-            recv_data = sock.recv(2000)
+            recv_data = sock.recv(2500)
             if recv_data:
                 data.json_in = json.loads(recv_data)
                 if not data.room:
@@ -274,7 +281,7 @@ class Server:
                     break
                 
                 self.logger.write_row(f"<- Try to turn on alarm system\n")
-                message = json.dumps(dict(tag="Try to turn on alarm system", value=1))
+                message = json.dumps(dict(type="alarm_system", tag="Try to turn on alarm system", value=1))
                 self.subscribe_message_to_rooms(message=message, all_rooms=True, room=None)
 
             list_commands = command.split("-")
@@ -297,7 +304,7 @@ class Server:
             tag_finded = False
             for obj in socketRoom[room].data.json_in["outputs"]:
                 if obj["tag"] == tag:
-                    message = json.dumps(dict(tag=tag, value=value))
+                    message = json.dumps(dict(type="output", tag=tag, value=value))
                     self.subscribe_message_to_rooms(message=message, all_rooms=False, room=room)
                     tag_finded = True
                     self.logger.write_row(message)
@@ -348,7 +355,7 @@ class Server:
 
     def request_temperature(self):
         try:
-            message = json.dumps(dict(tag="Sensor de Temperatura e Umidade", value="1"))
+            message = json.dumps(dict(type="input", tag="Sensor de Temperatura e Umidade", value="1"))
             while True and self.alive:
                 for room in socketRoom.values():
                     if room:

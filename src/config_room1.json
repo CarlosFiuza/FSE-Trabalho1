@@ -1,10 +1,11 @@
 {
   "ip_servidor_central": "127.0.0.1",
-  "porta_servidor_central": 3001,
-  "ip_servidor_distribuido": "127.0.0.1",
-  "porta_servidor_distribuido": 3002,
+  "porta_servidor_central": 10881,
+  "ip_servidor_distribuido": "164.41.98.16",
+  "porta_servidor_distribuido": 10882,
   "nome": "Sala 01",
   "num_pessoas": 0,
+  "feedback_acionamentos": [],
   "outputs": [
       {
           "type": "lampada",
