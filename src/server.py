@@ -6,6 +6,7 @@ import json
 import threading
 import csv
 import signal
+from colorama import Fore, Style
 from time import sleep
 from os import system
 from datetime import datetime
@@ -22,33 +23,54 @@ class Display:
     def __init__(self) -> None:
         self.rooms = {}
 
+    def reset_style(_):
+        sys.stdout.write(Style.RESET_ALL)
+
+    def message_error(self, message):
+        self.reset_style()
+        sys.stdout.write(f"{Fore.RED}{message}")
+
+    def message_server(self, message):
+        self.reset_style()
+        sys.stdout.write(f"{Fore.YELLOW}{message}")
+
+    def message_room(self, message):
+        self.reset_style()
+        sys.stdout.write(f"{Fore.GREEN}{message}")
+
     def set_room(self, key, value):
         self.rooms[key] = value
 
-    def alarm_system(_, is_alarm_system_on):
+    def alarm_system(self, is_alarm_system_on):
         message = "ligado" if is_alarm_system_on else "desligado"
-        sys.stdout.write(f"Sistema de alarme: {message}\n")
+        self.reset_style()
+        sys.stdout.write(f"{Fore.CYAN}Sistema de alarme: {message}\n")
 
-    def inputs(_, input):
-        sys.stdout.write("\n Status of inputs:\n")
+    def inputs(self, input):
+        self.reset_style()
+        sys.stdout.write(f"\n {Fore.CYAN}Status of inputs:\n")
         for obj in input:
             tag = obj["tag"]
             value = "desligado" if int(obj["value"]) == 0 else "ligado"
             sys.stdout.write(f"| {tag}: {value}\n")
             sys.stdout.write("|----------------------------\n")
 
-    def outputs(_, output):
-        sys.stdout.write("\n Status of outputs:\n")
+    def outputs(self, output):
+        self.reset_style()
+        sys.stdout.write(f"\n {Fore.CYAN}Status of outputs:\n")
         for obj in output:
             tag = obj["tag"]
             value = "desligado" if int(obj["value"]) == 0 else "ligado"
             sys.stdout.write(f"| {tag}: {value}\n")
             sys.stdout.write("|----------------------------\n")
 
-    def temp(_, obj):
+    def temp(self, obj):
         temp = obj["value_temp"]
         hum = obj["value_hum"]
-        sys.stdout.write(f"\nValor da temperatura e umidade: {temp}°C {hum}%\n")
+        self.reset_style()
+        sys.stdout.write(
+            f"\n{Fore.CYAN}Valor da temperatura e umidade: {temp}°C {hum}%\n"
+        )
         sys.stdout.write("----------------------------\n")
 
     def show_available_rooms(self):
@@ -60,13 +82,16 @@ class Display:
     def show_number_persons(self, show_all, key):
         try:
             count = 0
+            self.reset_style()
             if show_all:
                 for room in self.rooms.values():
                     count = count + int(room["num_pessoas"])
-                sys.stdout.write(f"Número de pessoas no prédio: {count}\n")
+                sys.stdout.write(
+                    f"{Fore.MAGENTA}Número de pessoas no prédio: {count}\n"
+                )
             else:
                 sys.stdout.write(
-                    f"Número de pessoas na sala: {self.rooms[key]['num_pessoas']}\n"
+                    f"{Fore.MAGENTA}Número de pessoas na sala: {self.rooms[key]['num_pessoas']}\n"
                 )
         except:
             print("HEHEHEH")
@@ -76,14 +101,15 @@ class Display:
         for key, room in self.rooms.items():
             if i == idx:
                 value = room
-                print(key)
+                self.reset_style()
+                sys.stdout.write(f"{Fore.CYAN}{key}\n")
                 self.show_number_persons(show_all=False, key=key)
                 self.inputs(value["inputs"])
                 self.outputs(value["outputs"])
                 self.temp(value["sensor_temperatura"][0])
                 return
             i = i + 1
-        sys.stdout.write("Wrong function Display.show behavior")
+        self.message_error("Wrong function Display.show behavior\n")
 
 
 class Logger:
@@ -111,18 +137,18 @@ class Server:
         try:
             self.host = ip_addr
             self.port = port
+            self.display = Display()
             self.lsock = self.create_server_socket()
             self.sel = selectors.SelectSelector()
             self.sel.register(self.lsock, selectors.EVENT_READ, data=None)
             self.logger = Logger()
             self.num_rooms = 0
-            self.display = Display()
             self.alive = True
             self.alarm_system_on = False
             self.alarm_ring_on = False
             self.socketRoom = {}
-        except OSError as error:
-            sys.stdout.write(f"Failed do create socker, error: {error}\n")
+        except Exception as error:
+            self.display.message_error(f"Failed do create server, error: {error}\n")
             exit(1)
 
     def create_server_socket(self):
@@ -130,15 +156,15 @@ class Server:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.bind((self.host, self.port))
             s.listen()
-            sys.stdout.write(f"Listening on {(self.host, self.port)}\n")
+            self.display.message_server(f"Listening on {(self.host, self.port)}\n")
             s.setblocking(False)
             return s
         except OSError as error:
-            sys.stdout.write(f"Failed do create socker, error: {error}\n")
+            self.display.message_error(f"Failed do create socker, error: {error}\n")
             exit(1)
 
     def signal_int_handler(self, signum, stack_frame):
-        sys.stdout.write(f"\nCtrl-C pressed, exiting\n")
+        self.display.message_server(f"\nCtrl-C pressed, exiting\n")
         self.alive = False
         self.logger.close_file()
         self.sel.close()
@@ -147,7 +173,7 @@ class Server:
 
     def accept_wrapper(self, sock):
         conn, addr = sock.accept()
-        sys.stdout.write(f"Accepted connection from {addr}\n")
+        self.display.message_server(f"Accepted connection from {addr}\n")
         conn.setblocking(False)
         data = types.SimpleNamespace(
             addr=addr, room="", json_in="", json_out=b"", keep_lamps_on=False
@@ -225,7 +251,7 @@ class Server:
                             self.alarm_system_on = True
                         else:
                             message = f"There are input sensors indicating presence or smoke or window/door open in {json_in['nome']}\n"
-                        sys.stdout.write(message)
+                        self.display.message_room(message)
                         continue
 
                     if success == 1:
@@ -236,9 +262,11 @@ class Server:
                     if obj["tag"] == "Sirene do Alarme":
                         self.alarm_ring_on = True if value == 1 else False
 
-                    sys.stdout.write(message)
+                    self.display.message_room(message)
         except Exception as error:
-            sys.stdout.write(f"Failed in check_sensors_input, error: {error}\n")
+            self.display.message_error(
+                f"Failed in check_sensors_input, error: {error}\n"
+            )
             pass
 
     def service_connection(self, key, mask):
@@ -258,7 +286,7 @@ class Server:
                         self.display.set_room(key=data.room, value=data.json_in)
                         self.check_sensors_input(data=data)
                     except json.decoder.JSONDecodeError as error:
-                        sys.stdout.write(f"JSONDecodeError, error: {error}\n")
+                        self.display.message_error(f"JSONDecodeError, error: {error}\n")
                         pass
                 else:
                     print(f"Closing connection to {data.room}")
@@ -270,27 +298,30 @@ class Server:
                 if data.json_out:
                     sock.send(data.json_out)
                     data.json_out = b""
-        except ConnectionResetError as error:
-            sys.stdout.write(f"Failed to service_connection, error: {error}\n")
-            sys.stdout.write(f"Closing connection to {key.data.room}\n")
+        except (ConnectionResetError, OSError) as error:
+            self.display.message_error(
+                f"Failed to service_connection, error: {error}\n"
+            )
+            self.display.message_server(f"Closing connection to {key.data.room}\n")
             self.sel.unregister(key.fileobj)
             pass
 
     def input_user_display_room(self):
         self.display.alarm_system(self.alarm_system_on)
         self.display.show_number_persons(show_all=True, key=None)
-        sys.stdout.write("-> Press the number of the room or 0 to come back:\n")
+        self.display.message_server("Press the number of the room or 0 to come back:\n")
         self.display.show_available_rooms()
         while True:
+            self.display.reset_style()
             num_pressed = (sys.stdin.readline()).strip()
             if not num_pressed.isnumeric():
-                sys.stdout.write("<- Press a number, not string\n")
+                self.display.message_server("<- Press a number, not string\n")
                 continue
             num_pressed = int(num_pressed)
             if num_pressed == 0:
                 break
             if num_pressed < 1 or num_pressed > self.num_rooms:
-                sys.stdout.write("<- Wrong number, press again\n")
+                self.display.message_server("<- Wrong number, press again\n")
             else:
                 system("clear")
                 self.display.show(num_pressed)
@@ -298,29 +329,32 @@ class Server:
 
     def input_user_enter_command(self):
         system("clear")
-        sys.stdout.write(
-            "-> Write <room> - <output> - <value> to send a command to room specific sensor\n"
+        self.display.message_server("Write: \n")
+        self.display.message_server(
+            "   <room> - <output> - <value> to send a command to room specific sensor\n"
         )
-        sys.stdout.write(
-            "-> Write 'room lamps' - <room> - <value> to on/off all lamps in the room \n"
+        self.display.message_server(
+            "   'room lamps' - <room> - <value> to on/off all lamps in the room \n"
         )
-        sys.stdout.write(
-            "-> Write 'room outputs' - <room> - <value> to on/off all the outputs (minus alarm) in the room\n"
+        self.display.message_server(
+            "   'room outputs' - <room> - <value> to on/off all the outputs (minus alarm) in the room\n"
         )
-        sys.stdout.write(
-            "-> Write 'all lamps' - <value> to on/off all the lamps in all the rooms\n"
+        self.display.message_server(
+            "   'all lamps' - <value> to on/off all the lamps in all the rooms\n"
         )
-        sys.stdout.write(
-            "-> Write 'all outputs' - <value> to on/off all the outputs (minus alarm) in all the rooms\n"
+        self.display.message_server(
+            "   'all outputs' - <value> to on/off all the outputs (minus alarm) in all the rooms\n"
         )
-        sys.stdout.write(
-            "-> Write 'alarm' to on/off alarm system\n"
+        self.display.message_server(
+            "   'alarm' to on/off alarm system\n"
         )  # or 0 to come back
-        sys.stdout.write("-> Obs: (value: 0 = off and 1 = on)\n")
+        self.display.message_server("Obs: (value: 0 = off and 1 = on)\n")
+        self.display.message_server("Or write 0 to come back\n")
 
         special_commands = ["room lamps", "all lamps", "room outputs", "all outputs"]
 
         while True:
+            self.display.reset_style()
             command = sys.stdin.readline()
             if (command.strip()).isnumeric() and int(command.strip()) == 0:
                 return
@@ -328,7 +362,7 @@ class Server:
             elif command.strip() == "alarm":
                 if self.alarm_system_on:
                     message = f"<- Turn off alarm system\n"
-                    sys.stdout.write(message)
+                    self.display.message_server(message)
                     self.alarm_system_on = False
                     break
 
@@ -353,22 +387,28 @@ class Server:
                         or len(params) != 3
                         or not params[2].strip() in ["0", "1"]
                     ):
-                        sys.stdout.write("<- Invalid room or value, write again\n")
+                        self.display.message_server(
+                            "<- Invalid room or value, write again\n"
+                        )
                         continue
                     value = params[2].strip()
                     self.logger.write_row(f"{comm} to value {value} in room {room}")
-                    message = json.dumps(dict(type=comm, tag=f"{command}", value=value))
+                    message = json.dumps(
+                        dict(type=comm, tag=f"{command.strip()}", value=value)
+                    )
                     self.subscribe_message_to_rooms(
                         message=message, all_rooms=False, room=room
                     )
                     break
                 else:
                     if not params[1].strip() in ["0", "1"]:
-                        sys.stdout.write("<- Invalid value, write again\n")
+                        self.display.message_server("<- Invalid value, write again\n")
                         continue
                     value = params[1].strip()
                     self.logger.write_row(f"{comm} to value {value} in all rooms")
-                    message = json.dumps(dict(type=comm, tag=f"{command}", value=value))
+                    message = json.dumps(
+                        dict(type=comm, tag=f"{command.strip()}", value=value)
+                    )
                     self.subscribe_message_to_rooms(
                         message=message, all_rooms=True, room=None
                     )
@@ -376,7 +416,7 @@ class Server:
 
             list_commands = command.split("-")
             if len(list_commands) != 3:
-                sys.stdout.write("<- Invalid inputs, write again\n")
+                self.display.message_server("<- Invalid inputs, write again\n")
                 continue
 
             room = list_commands[0].strip()
@@ -384,11 +424,11 @@ class Server:
             value = int(list_commands[2].strip())
 
             if not room in self.socketRoom.keys():
-                sys.stdout.write("<- Invalid room, write again\n")
+                self.display.message_server("<- Invalid room, write again\n")
                 continue
 
             if value != 0 and value != 1:
-                sys.stdout.write("<- Invalid value, write again\n")
+                self.display.message_server("<- Invalid value, write again\n")
                 continue
 
             tag_finded = False
@@ -406,23 +446,24 @@ class Server:
             if tag_finded:
                 break
             else:
-                sys.stdout.write("<- Invalid tag, write again\n")
+                self.display.message_server("<- Invalid tag, write again\n")
 
     def input_user(self):
         try:
             while True and self.alive:
                 if self.num_rooms == 0:
-                    sys.stdout.write("<- No room connected\n")
+                    self.display.message_server("<- No room connected\n")
                     sleep(2)
                     continue
 
-                sys.stdout.write(
-                    "-> Press 1 to show room's info\n   2 to send a command\n   0 to quit\n"
+                self.display.message_server(
+                    "Press 1 to show room's info\n   2 to send a command\n   0 to quit\n"
                 )
+                self.display.reset_style()
                 pressed = input()
 
                 if not (pressed.strip()).isnumeric():
-                    sys.stdout.write("<- Wrong input\n")
+                    self.display.message_server("<- Wrong input\n")
                     continue
 
                 pressed = int(pressed.strip())
@@ -432,7 +473,7 @@ class Server:
                     continue
 
                 if pressed != 1 and pressed != 2:
-                    sys.stdout.write("<- Wrong input\n")
+                    self.display.message_server("<- Wrong input\n")
                     continue
 
                 if pressed == 1:
@@ -443,7 +484,7 @@ class Server:
                     self.input_user_enter_command()
 
         except Exception as error:
-            sys.stdout.write(f"Error on input_user {error}\n")
+            self.display.message_error(f"Error on input_user {error}\n")
             self.alive = False
 
     def request_temperature(self):
@@ -453,7 +494,7 @@ class Server:
             )
             self.subscribe_message_to_rooms(message=message, all_rooms=True, room=None)
         except:
-            sys.stdout.write("Request_temperature Failed\n")
+            self.display.message_error("Request_temperature Failed\n")
             self.alive = False
 
     def manage_connections(self):

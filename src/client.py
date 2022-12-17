@@ -130,7 +130,6 @@ class Room:
 
             try:
                 task = self.to_do.popleft()
-                # print(f"Doing this: {task}")
 
                 if task["type"] in self.special_commands:
                     value = int(task["value"])
