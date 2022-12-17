@@ -22,6 +22,12 @@ class Room:
         self.to_do = deque([])
         self.keep_lamp_on_sec = 0
         self.count_lam_on = 0
+        self.special_commands = [
+            "room lamps",
+            "all lamps",
+            "room outputs",
+            "all outputs",
+        ]
 
     def stop(self):
         self.alive = False
@@ -87,8 +93,12 @@ class Room:
 
     def send_to_server(self):
         string = json.dumps(self.config)
-        # print("Sending to server")
-        self.socket.sendall(str(string + "\n").encode())
+        try:
+            self.socket.sendall(str(string + "\n").encode())
+        except (BrokenPipeError, ConnectionResetError) as error:
+            sys.stdout.write(f"Failed to send_to_server, error: {error}\n")
+            sys.stdout.write("exiting...\n")
+            self.stop()
 
     def send_feedback(self, task, success):
         self.config["feedback_acionamentos"].append(
@@ -112,13 +122,34 @@ class Room:
                 list_obj = self.get_obj_gpio(
                     tag=None, typeof=["lampada"], key="outputs"
                 )
-                gpio.output([obj["gpio"] for obj in list_obj], 0)
+                for obj in list_obj:
+                    gpio.output(obj["gpio"], 0)
+                    obj["value"] = 0
                 self.keep_lamp_on_sec = 0
                 self.count_lam_on = 0
 
             try:
                 task = self.to_do.popleft()
                 # print(f"Doing this: {task}")
+
+                if task["type"] in self.special_commands:
+                    value = int(task["value"])
+                    if task["type"] in ["room lamps", "all lamps"]:
+                        list_obj = self.get_obj_gpio(
+                            tag=None, typeof=["lampada"], key="outputs"
+                        )
+                    else:
+                        list_obj = self.get_obj_gpio(
+                            tag=None,
+                            typeof=["lampada", "projetor", "ar-condicionado"],
+                            key="outputs",
+                        )
+                    value = int(task["value"])
+                    for obj in list_obj:
+                        gpio.output(obj["gpio"], value)
+                        obj["value"] = value
+                    self.send_feedback(task=task, success=True)
+
                 if task["type"] == "output":
                     try:
                         if "time" in task:
@@ -126,7 +157,10 @@ class Room:
                                 list_obj = self.get_obj_gpio(
                                     tag=None, typeof=["lampada"], key="outputs"
                                 )
-                                gpio.output([obj["gpio"] for obj in list_obj], 1)
+                                for obj in list_obj:
+                                    gpio.output(obj["gpio"], 1)
+                                    obj["value"] = 1
+
                                 self.keep_lamp_on_sec = 15
                         else:
                             obj = self.get_obj_gpio(
@@ -228,9 +262,13 @@ class Room:
             while True and self.alive:
                 data = self.socket.recv(2500)
                 if data:
+                    aux = data.decode()
+                    data = aux.split("*")
                     try:
-                        message = json.loads(data)
-                        self.to_do.append(message)
+                        for jsn in data:
+                            if jsn and jsn != "":
+                                message = json.loads(jsn)
+                                self.to_do.append(message)
                     except json.decoder.JSONDecodeError as error:
                         sys.stdout.write(f"JSONDecodeError, error: {error}\n")
                         pass

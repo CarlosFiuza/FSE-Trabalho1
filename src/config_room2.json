@@ -1,6 +1,6 @@
 {
-  "ip_servidor_central": "192.168.1.103",
-  "porta_servidor_central": 10882,
+  "ip_servidor_central": "127.0.0.1",
+  "porta_servidor_central": 10881,
   "ip_servidor_distribuido": "164.41.98.26",
   "porta_servidor_distribuido": 10883,
   "nome": "Sala 02",
@@ -71,7 +71,7 @@
       },
       {
           "type": "contagem",
-          "tag": "Sensor de Contagem de Pessoas Saída",
+          "tag": "Sensor de Contagem de Pessoas Saida",
           "gpio": 27,
           "value": 0
       }

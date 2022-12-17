@@ -17,20 +17,6 @@ rooms = {
     "164.41.98.15/13508": "Sala 4",
 }
 
-socketRoom = {
-    "Sala 1": None,
-    "Sala 2": None,
-    "Sala 3": None,
-    "Sala 4": None,
-}
-
-info_display = {
-    "Sala 1": {},
-    "Sala 2": {},
-    "Sala 3": {},
-    "Sala 4": {},
-}
-
 
 class Display:
     def __init__(self) -> None:
@@ -134,6 +120,7 @@ class Server:
             self.alive = True
             self.alarm_system_on = False
             self.alarm_ring_on = False
+            self.socketRoom = {}
         except OSError as error:
             sys.stdout.write(f"Failed do create socker, error: {error}\n")
             exit(1)
@@ -143,34 +130,24 @@ class Server:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.bind((self.host, self.port))
             s.listen()
-            print(f"Listening on {(self.host, self.port)}")
+            sys.stdout.write(f"Listening on {(self.host, self.port)}\n")
             s.setblocking(False)
             return s
         except OSError as error:
             sys.stdout.write(f"Failed do create socker, error: {error}\n")
             exit(1)
 
-    def create_log_csv(self):
-        try:
-            file = open("logs.csv", "x")
-            header = ["action", "date", "time"]
-            writer = csv.writer(file)
-            writer.writerow(header)
-            return writer
-        except Exception as error:
-            sys.stdout.write(f"Failed to create log file, error : {error}\n")
-            exit(1)
-
     def signal_int_handler(self, signum, stack_frame):
-        sys.stdout.write(f"\nCtrl-C pressed, exiting\n {signum} {stack_frame}\n")
+        sys.stdout.write(f"\nCtrl-C pressed, exiting\n")
         self.alive = False
         self.logger.close_file()
         self.sel.close()
+        self.lsock.close()
         exit(1)
 
     def accept_wrapper(self, sock):
         conn, addr = sock.accept()
-        print(f"Accepted connection from {addr}")
+        sys.stdout.write(f"Accepted connection from {addr}\n")
         conn.setblocking(False)
         data = types.SimpleNamespace(
             addr=addr, room="", json_in="", json_out=b"", keep_lamps_on=False
@@ -181,11 +158,11 @@ class Server:
 
     def subscribe_message_to_rooms(self, message, all_rooms, room):
         if not all_rooms:
-            socketRoom[room].data.json_out += message.encode()
+            self.socketRoom[room].data.json_out += f"{message}*".encode()
             return
-        for sock in socketRoom.values():
+        for sock in self.socketRoom.values():
             if sock:
-                sock.data.json_out += message.encode()
+                sock.data.json_out += f"{message}*".encode()
 
     def check_sensors_input(self, data):
         json_in = data.json_in
@@ -201,7 +178,9 @@ class Server:
                             self.subscribe_message_to_rooms(
                                 message=message, all_rooms=True, room=None
                             )
-                            self.logger.write_row("Acionamento do alarme")
+                            self.logger.write_row(
+                                f"Acionamento do alarme por {sens['type']} enquanto sistema de alarme ligado"
+                            )
                             self.alarm_ring_on = True
                             break
                     except ValueError:
@@ -232,7 +211,7 @@ class Server:
                         self.subscribe_message_to_rooms(
                             message=message, all_rooms=True, room=None
                         )
-                        self.logger.write_row("Acionamento do alarme")
+                        self.logger.write_row("Acionamento do alarme deteccao fumaca")
                         self.alarm_ring_on = True
                         break
 
@@ -250,9 +229,9 @@ class Server:
                         continue
 
                     if success == 1:
-                        message = f"Successful to {obj['tag']} to value {value}\n"
+                        message = f"[Successful] to {obj['tag']} to value {value}\n"
                     else:
-                        message = f"Failed to {obj['tag']} to value {value}\n"
+                        message = f"[Unsuccessful] to {obj['tag']} to value {value}\n"
 
                     if obj["tag"] == "Sirene do Alarme":
                         self.alarm_ring_on = True if value == 1 else False
@@ -275,7 +254,7 @@ class Server:
                         data.json_in = json.loads(aux_list)
                         if not data.room:
                             data.room = data.json_in["nome"]
-                            socketRoom[data.room] = key
+                            self.socketRoom[data.room] = key
                         self.display.set_room(key=data.room, value=data.json_in)
                         self.check_sensors_input(data=data)
                     except json.decoder.JSONDecodeError as error:
@@ -286,15 +265,14 @@ class Server:
                     self.sel.unregister(sock)
                     sock.close()
                     self.num_rooms = self.num_rooms - 1
-                    socketRoom[data.room] = None
+                    self.socketRoom.pop(data.room)
             if mask & selectors.EVENT_WRITE:
                 if data.json_out:
-                    sent = sock.send(data.json_out)
-                    # data.json_out = data.json_out[sent:]
+                    sock.send(data.json_out)
                     data.json_out = b""
         except ConnectionResetError as error:
             sys.stdout.write(f"Failed to service_connection, error: {error}\n")
-            print(f"Closing connection to {key.data.room}")
+            sys.stdout.write(f"Closing connection to {key.data.room}\n")
             self.sel.unregister(key.fileobj)
             pass
 
@@ -314,23 +292,38 @@ class Server:
             if num_pressed < 1 or num_pressed > self.num_rooms:
                 sys.stdout.write("<- Wrong number, press again\n")
             else:
-                # system("clear")
+                system("clear")
                 self.display.show(num_pressed)
                 break
 
     def input_user_enter_command(self):
-        # system("clear")
+        system("clear")
         sys.stdout.write(
-            "-> Write <room> - <output> - <value> to send a command or 0 to come back\n"
+            "-> Write <room> - <output> - <value> to send a command to room specific sensor\n"
         )
-        sys.stdout.write("-> Write 'alarm' to on/off alarm system\n")
+        sys.stdout.write(
+            "-> Write 'room lamps' - <room> - <value> to on/off all lamps in the room \n"
+        )
+        sys.stdout.write(
+            "-> Write 'room outputs' - <room> - <value> to on/off all the outputs (minus alarm) in the room\n"
+        )
+        sys.stdout.write(
+            "-> Write 'all lamps' - <value> to on/off all the lamps in all the rooms\n"
+        )
+        sys.stdout.write(
+            "-> Write 'all outputs' - <value> to on/off all the outputs (minus alarm) in all the rooms\n"
+        )
+        sys.stdout.write(
+            "-> Write 'alarm' to on/off alarm system\n"
+        )  # or 0 to come back
         sys.stdout.write("-> Obs: (value: 0 = off and 1 = on)\n")
+
+        special_commands = ["room lamps", "all lamps", "room outputs", "all outputs"]
 
         while True:
             command = sys.stdin.readline()
             if (command.strip()).isnumeric() and int(command.strip()) == 0:
-                self.alive = False
-                break
+                return
 
             elif command.strip() == "alarm":
                 if self.alarm_system_on:
@@ -339,7 +332,7 @@ class Server:
                     self.alarm_system_on = False
                     break
 
-                self.logger.write_row(f"<- Try to turn on alarm system\n")
+                self.logger.write_row(f"Try to turn on alarm system")
                 message = json.dumps(
                     dict(
                         type="alarm_system", tag="Try to turn on alarm system", value=1
@@ -350,6 +343,37 @@ class Server:
                 )
                 break
 
+            if command.split("-")[0].strip() in special_commands:
+                params = command.split("-")
+                comm = params[0].strip()
+                if "room" in comm:
+                    room = params[1].strip()
+                    if (
+                        not room in self.socketRoom.keys()
+                        or len(params) != 3
+                        or not params[2].strip() in ["0", "1"]
+                    ):
+                        sys.stdout.write("<- Invalid room or value, write again\n")
+                        continue
+                    value = params[2].strip()
+                    self.logger.write_row(f"{comm} to value {value} in room {room}")
+                    message = json.dumps(dict(type=comm, tag=f"{command}", value=value))
+                    self.subscribe_message_to_rooms(
+                        message=message, all_rooms=False, room=room
+                    )
+                    break
+                else:
+                    if not params[1].strip() in ["0", "1"]:
+                        sys.stdout.write("<- Invalid value, write again\n")
+                        continue
+                    value = params[1].strip()
+                    self.logger.write_row(f"{comm} to value {value} in all rooms")
+                    message = json.dumps(dict(type=comm, tag=f"{command}", value=value))
+                    self.subscribe_message_to_rooms(
+                        message=message, all_rooms=True, room=None
+                    )
+                    break
+
             list_commands = command.split("-")
             if len(list_commands) != 3:
                 sys.stdout.write("<- Invalid inputs, write again\n")
@@ -359,7 +383,7 @@ class Server:
             tag = list_commands[1].strip()
             value = int(list_commands[2].strip())
 
-            if not socketRoom[room]:
+            if not room in self.socketRoom.keys():
                 sys.stdout.write("<- Invalid room, write again\n")
                 continue
 
@@ -368,14 +392,15 @@ class Server:
                 continue
 
             tag_finded = False
-            for obj in socketRoom[room].data.json_in["outputs"]:
+            for obj in self.socketRoom[room].data.json_in["outputs"]:
                 if obj["tag"] == tag:
                     message = json.dumps(dict(type="output", tag=tag, value=value))
                     self.subscribe_message_to_rooms(
                         message=message, all_rooms=False, room=room
                     )
                     tag_finded = True
-                    self.logger.write_row(message)
+                    logger_message = f"{room} - {tag} - {value}"
+                    self.logger.write_row(logger_message)
                     break
 
             if tag_finded:
@@ -394,7 +419,7 @@ class Server:
                 sys.stdout.write(
                     "-> Press 1 to show room's info\n   2 to send a command\n   0 to quit\n"
                 )
-                pressed = sys.stdin.readline()
+                pressed = input()
 
                 if not (pressed.strip()).isnumeric():
                     sys.stdout.write("<- Wrong input\n")
@@ -403,18 +428,18 @@ class Server:
                 pressed = int(pressed.strip())
 
                 if pressed == 0:
-                    self.sel.close()
-                    exit()
+                    self.alive = False
+                    continue
 
                 if pressed != 1 and pressed != 2:
                     sys.stdout.write("<- Wrong input\n")
                     continue
 
                 if pressed == 1:
-                    # system("clear")
+                    system("clear")
                     self.input_user_display_room()
                 else:
-                    # system("clear")
+                    system("clear")
                     self.input_user_enter_command()
 
         except Exception as error:
@@ -426,36 +451,32 @@ class Server:
             message = json.dumps(
                 dict(type="input", tag="Sensor de Temperatura e Umidade", value="1")
             )
-            while True and self.alive:
-                self.subscribe_message_to_rooms(
-                    message=message, all_rooms=True, room=None
-                )
-                sleep(2)
+            self.subscribe_message_to_rooms(message=message, all_rooms=True, room=None)
         except:
             sys.stdout.write("Request_temperature Failed\n")
             self.alive = False
 
     def manage_connections(self):
-        while True and server.alive:
-            for key, mask in self.sel.select(timeout=1000):
+        count = 0
+        while True and self.alive:
+            for key, mask in self.sel.select():
+                if count == 10:
+                    self.request_temperature()
+                    count = 0
                 if key.data is None:
                     server.accept_wrapper(key.fileobj)
                 else:
                     server.service_connection(key, mask)
                 sleep(0.2)
+                count = count + 1
 
     def run(self):
         thread_input = threading.Thread(target=self.input_user)
-        thread_req_temp = threading.Thread(target=self.request_temperature)
         thread_input.daemon = True
         thread_input.start()
-        thread_req_temp.start()
-
         self.manage_connections()
-
         self.logger.close_file()
         thread_input.join(0.1)
-        thread_req_temp.join(0.1)
         self.sel.close()
 
 
