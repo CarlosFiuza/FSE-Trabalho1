@@ -200,9 +200,9 @@ class Room:
                             temperature = self.dht.temperature
                             break
                         except (RuntimeError, OverflowError):
-                            sys.stdout.write(
-                                "Failed to read humidity and temperature, trying again\n"
-                            )
+                            # sys.stdout.write(
+                            #     "Failed to read humidity and temperature, trying again\n"
+                            # )
                             pass
                         count = count + 1
                     obj["value_hum"] = humidity
@@ -213,7 +213,6 @@ class Room:
                 sleep(0.02)
 
             except IndexError:
-                print("checking inputs")
                 presence = self.get_obj_gpio(
                     tag="Sensor de Presença", typeof=None, key="inputs"
                 )
@@ -269,7 +268,7 @@ class Room:
                                 message = json.loads(jsn)
                                 self.to_do.append(message)
                     except json.decoder.JSONDecodeError as error:
-                        sys.stdout.write(f"JSONDecodeError, error: {error}\n")
+                        # sys.stdout.write(f"JSONDecodeError, error: {error}\n")
                         pass
         except ConnectionResetError as error:
             sys.stdout.write(f"Failed to service_connection, error: {error}\n")

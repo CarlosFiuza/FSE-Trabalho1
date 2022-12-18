@@ -286,7 +286,7 @@ class Server:
                         self.display.set_room(key=data.room, value=data.json_in)
                         self.check_sensors_input(data=data)
                     except json.decoder.JSONDecodeError as error:
-                        self.display.message_error(f"JSONDecodeError, error: {error}\n")
+                        # self.display.message_error(f"JSONDecodeError, error: {error}\n")
                         pass
                 else:
                     print(f"Closing connection to {data.room}")
